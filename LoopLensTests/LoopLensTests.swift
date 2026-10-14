@@ -6,6 +6,7 @@
 //
 
 import CoreGraphics
+import Foundation
 import Testing
 @testable import LoopLens
 
@@ -57,5 +58,39 @@ struct LoopLensTests {
             region.outputSize(backingScaleFactor: 2, maxDimension: 1920)
                 == CGSize(width: 1920, height: 1280)
         )
+    }
+
+    @Test func gifSettingsCalculateTimingAndFrameCount() {
+        let settings = GIFExportSettings(framesPerSecond: 15, maxDimension: 960)
+
+        #expect(settings.frameDelay == 1.0 / 15.0)
+        #expect(settings.frameCount(durationSeconds: 2.9) == 43)
+        #expect(settings.frameCount(durationSeconds: 0.01) == 1)
+    }
+
+    @Test @MainActor func recordingNameIsSafeForSavePanels() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        let store = ScreenCaptureStore(defaults: defaults)
+
+        store.recordingName = "  Product / Demo: Final  "
+        #expect(store.safeRecordingName == "Product - Demo- Final")
+
+        store.recordingName = "   "
+        #expect(store.safeRecordingName == "LoopLens Recording")
+    }
+
+    @Test @MainActor func recordingPreferencesPersist() {
+        let suiteName = #function
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = ScreenCaptureStore(defaults: defaults)
+        store.usesRecordingFloaty = false
+        store.excludesLoopLensFromCapture = false
+
+        let restoredStore = ScreenCaptureStore(defaults: defaults)
+        #expect(restoredStore.usesRecordingFloaty == false)
+        #expect(restoredStore.excludesLoopLensFromCapture == false)
     }
 }

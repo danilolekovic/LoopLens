@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var captureStore = ScreenCaptureStore()
+    @ObservedObject var captureStore: ScreenCaptureStore
 
     var body: some View {
         NavigationSplitView {
@@ -58,21 +58,39 @@ struct ContentView: View {
     }
 
     private var sourceList: some View {
-        List(captureStore.displays, selection: $captureStore.selectedDisplayID) { display in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(display.name)
-                    .fontWeight(.medium)
-                Text(display.resolutionLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if captureStore.selectedDisplayID == display.id, let region = captureStore.captureRegion {
-                    Label(region.sizeLabel, systemImage: "crop")
-                        .font(.caption2)
-                        .foregroundStyle(.tint)
+        List(selection: $captureStore.selectedDisplayID) {
+            Section("Displays") {
+                ForEach(captureStore.displays) { display in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(display.name)
+                            .fontWeight(.medium)
+                        Text(display.resolutionLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if captureStore.selectedDisplayID == display.id, let region = captureStore.captureRegion {
+                            Label(region.sizeLabel, systemImage: "crop")
+                                .font(.caption2)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                    .tag(display.id)
                 }
             }
-            .padding(.vertical, 3)
-            .tag(display.id)
+
+            Section("GIF Export") {
+                TextField("Recording name", text: $captureStore.recordingName)
+                Picker("Frame rate", selection: $captureStore.gifFramesPerSecond) {
+                    Text("10 fps").tag(10)
+                    Text("15 fps").tag(15)
+                    Text("20 fps").tag(20)
+                }
+                Picker("Maximum size", selection: $captureStore.gifMaxDimension) {
+                    Text("640 px").tag(640)
+                    Text("960 px").tag(960)
+                    Text("1280 px").tag(1280)
+                }
+            }
         }
         .navigationTitle("Displays")
         .navigationSplitViewColumnWidth(min: 210, ideal: 240)
@@ -137,7 +155,7 @@ struct ContentView: View {
                 }
             }
 
-        case .ready, .capturingPreview, .recording, .finishingRecording:
+        case .ready, .capturingPreview, .recording, .finishingRecording, .exportingGIF:
             previewContent
         }
     }
@@ -146,7 +164,12 @@ struct ContentView: View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
 
-            if let image = captureStore.previewImage {
+            if let gifURL = captureStore.lastGIFURL {
+                AnimatedGIFView(url: gifURL)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
+                    .padding(32)
+            } else if let image = captureStore.previewImage {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
@@ -234,14 +257,29 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             .frame(height: 44)
             .background(.bar)
+        } else if case let .exportingGIF(progress) = captureStore.state {
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .frame(width: 120)
+                Text("Encoding GIF… \(Int(progress * 100))%")
+                    .monospacedDigit()
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(.bar)
         } else if captureStore.lastRecordingURL != nil {
             HStack {
-                Label("Recording ready", systemImage: "checkmark.circle.fill")
+                Label(
+                    captureStore.lastGIFURL == nil ? "Recording ready" : "GIF exported",
+                    systemImage: "checkmark.circle.fill"
+                )
                     .foregroundStyle(.green)
                 Spacer()
-                Button("Save Recording…") {
-                    captureStore.saveLastRecording()
+                Button("Export GIF…") {
+                    Task { await captureStore.exportGIF() }
                 }
+                .buttonStyle(.borderedProminent)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -251,5 +289,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(captureStore: ScreenCaptureStore())
 }

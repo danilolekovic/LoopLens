@@ -10,14 +10,18 @@ area before fading away.
 
 ## Status
 
-LoopLens is in early development. The first milestone is a dependable capture
-pipeline:
+LoopLens is in early development. The current build includes:
 
 - Discover capturable displays and windows with ScreenCaptureKit.
-- Capture a full display or selected region.
-- Record cursor and gesture events on a separate effect timeline.
-- Render effects non-destructively.
-- Export a trimmed, optimized GIF.
+- Capture a full display or drag-select a screen region.
+- Record through a temporary H.264 working file.
+- Export endlessly looping GIFs at selectable sizes and frame rates.
+- Preview animated GIF exports in the app.
+- Control recording from a compact floating controller or the menu bar.
+- Optionally include or exclude LoopLens controls from the recording.
+
+Cursor gestures, effect timelines, zoom rendering, trimming, and more advanced
+GIF optimization are planned next.
 
 ## Requirements
 
@@ -33,8 +37,9 @@ pipeline:
 4. Grant Screen Recording permission when macOS requests it.
 5. Restart LoopLens if macOS requests a restart after granting permission.
 
-The app uses the macOS App Sandbox. GIFs will be written only to locations the
-user chooses through the system save panel.
+The app uses the macOS App Sandbox. Intermediate movies remain in the system
+temporary directory; GIFs are written only to locations the user chooses
+through the system save panel.
 
 ## Architecture
 

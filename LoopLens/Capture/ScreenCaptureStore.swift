@@ -16,6 +16,7 @@ final class ScreenCaptureStore: ObservableObject {
         case capturingPreview
         case recording
         case finishingRecording
+        case exportingGIF(Double)
         case failed(String)
     }
 
@@ -31,24 +32,58 @@ final class ScreenCaptureStore: ObservableObject {
     }
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var lastRecordingURL: URL?
+    @Published private(set) var lastGIFURL: URL?
     @Published private(set) var captureRegion: CaptureRegion?
+    @Published var recordingName = "LoopLens Recording"
+    @Published var gifFramesPerSecond = 15
+    @Published var gifMaxDimension = 960
+    @Published var usesRecordingFloaty: Bool {
+        didSet { defaults.set(usesRecordingFloaty, forKey: PreferenceKey.usesRecordingFloaty) }
+    }
+    @Published var excludesLoopLensFromCapture: Bool {
+        didSet { defaults.set(excludesLoopLensFromCapture, forKey: PreferenceKey.excludesLoopLensFromCapture) }
+    }
 
     private var shareableDisplays: [CGDirectDisplayID: SCDisplay] = [:]
     private var screens: [CGDirectDisplayID: NSScreen] = [:]
     private var applications: [SCRunningApplication] = []
     private var recordingSession: ScreenRecordingSession?
     private var regionSelectionController: RegionSelectionController?
+    private var recordingFloatyController: RecordingFloatyController?
+    private var hiddenWindows: [NSWindow] = []
+    private let gifEncoder = GIFEncoder()
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        usesRecordingFloaty = defaults.object(forKey: PreferenceKey.usesRecordingFloaty) as? Bool ?? true
+        excludesLoopLensFromCapture = defaults.object(
+            forKey: PreferenceKey.excludesLoopLensFromCapture
+        ) as? Bool ?? true
+    }
 
     var selectedDisplay: CaptureDisplay? {
         displays.first { $0.id == selectedDisplayID }
     }
 
     var isBusy: Bool {
-        state == .loading || state == .selectingRegion || state == .capturingPreview || state == .finishingRecording
+        switch state {
+        case .loading, .selectingRegion, .capturingPreview, .finishingRecording, .exportingGIF:
+            true
+        default:
+            false
+        }
     }
 
     var isRecording: Bool {
         state == .recording || state == .finishingRecording
+    }
+
+    var safeRecordingName: String {
+        let trimmed = recordingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "LoopLens Recording" : trimmed
+        let invalidCharacters = CharacterSet(charactersIn: "/:")
+        return fallback.components(separatedBy: invalidCharacters).joined(separator: "-")
     }
 
     func loadDisplays() async {
@@ -193,6 +228,7 @@ final class ScreenCaptureStore: ObservableObject {
             return
         }
 
+        removeTemporaryRecording()
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoopLens-\(UUID().uuidString)")
             .appendingPathExtension("mov")
@@ -216,8 +252,9 @@ final class ScreenCaptureStore: ObservableObject {
                 configuration: configuration
             )
             recordingSession = session
-            lastRecordingURL = nil
+            lastGIFURL = nil
             state = .recording
+            enterRecordingPresentation(on: screens[display.id])
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
             state = .failed(error.localizedDescription)
@@ -232,19 +269,21 @@ final class ScreenCaptureStore: ObservableObject {
             lastRecordingURL = try await recordingSession.stop()
             self.recordingSession = nil
             state = .ready
+            leaveRecordingPresentation()
         } catch {
             self.recordingSession = nil
+            leaveRecordingPresentation()
             state = .failed(error.localizedDescription)
         }
     }
 
-    func saveLastRecording() {
+    func exportGIF() async {
         guard let lastRecordingURL else { return }
 
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.quickTimeMovie]
+        panel.allowedContentTypes = [.gif]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "LoopLens Recording.mov"
+        panel.nameFieldStringValue = "\(safeRecordingName).gif"
 
         guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
 
@@ -252,16 +291,31 @@ final class ScreenCaptureStore: ObservableObject {
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try FileManager.default.removeItem(at: destinationURL)
             }
-            try FileManager.default.copyItem(at: lastRecordingURL, to: destinationURL)
+
+            state = .exportingGIF(0)
+            let settings = GIFExportSettings(
+                framesPerSecond: gifFramesPerSecond,
+                maxDimension: gifMaxDimension
+            )
+            try await gifEncoder.encode(
+                sourceURL: lastRecordingURL,
+                destinationURL: destinationURL,
+                settings: settings
+            ) { [weak self] progress in
+                self?.state = .exportingGIF(progress)
+            }
+            lastGIFURL = destinationURL
+            state = .ready
         } catch {
+            try? FileManager.default.removeItem(at: destinationURL)
             state = .failed(error.localizedDescription)
         }
     }
 
     private func contentFilter(for display: SCDisplay) -> SCContentFilter {
-        let ownApplications = applications.filter {
-            $0.bundleIdentifier == Bundle.main.bundleIdentifier
-        }
+        let ownApplications = excludesLoopLensFromCapture
+            ? applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+            : []
         return SCContentFilter(
             display: display,
             excludingApplications: ownApplications,
@@ -283,6 +337,34 @@ final class ScreenCaptureStore: ObservableObject {
         )
     }
 
+    private func enterRecordingPresentation(on screen: NSScreen?) {
+        guard usesRecordingFloaty else { return }
+
+        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible }
+        hiddenWindows.forEach { $0.orderOut(nil) }
+
+        let controller = RecordingFloatyController { [weak self] in
+            Task { await self?.stopRecording() }
+        }
+        recordingFloatyController = controller
+        controller.show(on: screen)
+    }
+
+    private func leaveRecordingPresentation() {
+        recordingFloatyController?.close()
+        recordingFloatyController = nil
+
+        hiddenWindows.forEach { $0.makeKeyAndOrderFront(nil) }
+        hiddenWindows.removeAll()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func removeTemporaryRecording() {
+        guard let lastRecordingURL else { return }
+        try? FileManager.default.removeItem(at: lastRecordingURL)
+        self.lastRecordingURL = nil
+    }
+
     private func permissionState(for error: Error) -> State {
         let error = error as NSError
         guard
@@ -302,5 +384,10 @@ final class ScreenCaptureStore: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private enum PreferenceKey {
+        static let usesRecordingFloaty = "usesRecordingFloaty"
+        static let excludesLoopLensFromCapture = "excludesLoopLensFromCapture"
     }
 }

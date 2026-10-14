@@ -9,9 +9,24 @@ import SwiftUI
 
 @main
 struct LoopLensApp: App {
+    @StateObject private var captureStore = ScreenCaptureStore()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Window("LoopLens", id: "main") {
+            ContentView(captureStore: captureStore)
+        }
+
+        MenuBarExtra {
+            RecorderMenu(captureStore: captureStore)
+        } label: {
+            Label(
+                "LoopLens",
+                systemImage: captureStore.isRecording ? "record.circle.fill" : "record.circle"
+            )
+        }
+
+        Settings {
+            SettingsView(captureStore: captureStore)
         }
     }
 }
