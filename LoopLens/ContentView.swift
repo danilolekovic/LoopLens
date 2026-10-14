@@ -32,7 +32,7 @@ struct ContentView: View {
                 Button {
                     Task { await captureStore.selectRegion() }
                 } label: {
-                    Label("Select region", systemImage: "crop")
+                    Label("Record region", systemImage: "crop")
                 }
                 .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy || captureStore.isRecording)
 
@@ -78,7 +78,7 @@ struct ContentView: View {
                 }
             }
 
-            Section("GIF Export") {
+            Section("GIF Settings") {
                 TextField("Recording name", text: $captureStore.recordingName)
                 Picker("Frame rate", selection: $captureStore.gifFramesPerSecond) {
                     Text("10 fps").tag(10)
@@ -201,7 +201,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(captureStore.selectedDisplay == nil)
 
-                    Button("Select Region") {
+                    Button("Select & Record Region") {
                         Task { await captureStore.selectRegion() }
                     }
                     .disabled(captureStore.selectedDisplay == nil)

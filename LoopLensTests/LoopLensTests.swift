@@ -46,6 +46,10 @@ struct LoopLensTests {
         )
 
         #expect(region.rect == CGRect(x: 100, y: 430, width: 800, height: 450))
+        #expect(
+            region.appKitRect(displayHeight: 1080)
+                == CGRect(x: 100, y: 200, width: 800, height: 450)
+        )
     }
 
     @Test func captureRegionUsesRetinaScaleAndMaximumDimension() {

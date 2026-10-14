@@ -51,6 +51,7 @@ final class ScreenCaptureStore: ObservableObject {
     private var recordingSession: ScreenRecordingSession?
     private var regionSelectionController: RegionSelectionController?
     private var recordingFloatyController: RecordingFloatyController?
+    private var captureBorderOverlayController: CaptureBorderOverlayController?
     private var hiddenWindows: [NSWindow] = []
     private let gifEncoder = GIFEncoder()
     private let defaults: UserDefaults
@@ -186,6 +187,10 @@ final class ScreenCaptureStore: ObservableObject {
             previewImage = nil
         }
         state = .ready
+
+        if appKitRect != nil {
+            await startRecording()
+        }
     }
 
     func clearRegion() {
@@ -381,19 +386,28 @@ final class ScreenCaptureStore: ObservableObject {
     }
 
     private func enterRecordingPresentation(on screen: NSScreen?) {
-        guard usesRecordingFloaty else { return }
+        if usesRecordingFloaty {
+            hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible }
+            hiddenWindows.forEach { $0.orderOut(nil) }
 
-        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible }
-        hiddenWindows.forEach { $0.orderOut(nil) }
-
-        let controller = RecordingFloatyController { [weak self] in
-            Task { await self?.stopRecording() }
+            let controller = RecordingFloatyController { [weak self] in
+                Task { await self?.stopRecording() }
+            }
+            recordingFloatyController = controller
+            controller.show(on: screen)
         }
-        recordingFloatyController = controller
-        controller.show(on: screen)
+
+        if let captureRegion, let screen {
+            let controller = CaptureBorderOverlayController(region: captureRegion, on: screen)
+            captureBorderOverlayController = controller
+            controller.show()
+        }
     }
 
     private func leaveRecordingPresentation() {
+        captureBorderOverlayController?.close()
+        captureBorderOverlayController = nil
+
         recordingFloatyController?.close()
         recordingFloatyController = nil
 

@@ -23,7 +23,7 @@ struct RecorderMenu: View {
             }
             .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)
 
-            Button("Select Region…") {
+            Button("Record Region…") {
                 Task { await captureStore.selectRegion() }
             }
             .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)

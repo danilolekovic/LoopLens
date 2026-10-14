@@ -13,10 +13,11 @@ area before fading away.
 LoopLens is in early development. The current build includes:
 
 - Discover capturable displays and windows with ScreenCaptureKit.
-- Capture a full display or drag-select a screen region.
+- Capture a full display or drag-select a screen region; selecting a region starts recording immediately.
 - Record through a temporary H.264 working file.
-- Export endlessly looping GIFs at selectable sizes and frame rates.
-- Preview animated GIF exports in the app.
+- Keep a click-through border around the selected region while recording.
+- Automatically save endlessly looping GIFs at selectable sizes and frame rates.
+- Play the temporary recording immediately, then preview the finished animated GIF in the app.
 - Control recording from a compact floating controller or the menu bar.
 - Optionally include or exclude LoopLens controls from the recording.
 
@@ -38,8 +39,8 @@ GIF optimization are planned next.
 5. Restart LoopLens if macOS requests a restart after granting permission.
 
 The app uses the macOS App Sandbox. Intermediate movies remain in the system
-temporary directory; GIFs are written only to locations the user chooses
-through the system save panel.
+temporary directory. Finished GIFs are saved to `Documents/LoopLens` by
+default; choose a different output folder in LoopLens Settings.
 
 ## Architecture
 

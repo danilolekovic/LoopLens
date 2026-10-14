@@ -17,6 +17,15 @@ struct CaptureRegion: Equatable, Sendable {
         "\(Int(rect.width)) × \(Int(rect.height)) pt"
     }
 
+    func appKitRect(displayHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: rect.minX,
+            y: displayHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
     func outputSize(backingScaleFactor: CGFloat, maxDimension: Int) -> CGSize {
         let pixelSize = CGSize(
             width: rect.width * backingScaleFactor,
