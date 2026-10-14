@@ -12,6 +12,7 @@ final class ScreenCaptureStore: ObservableObject {
         case permissionRequired
         case restartRequired
         case ready
+        case selectingRegion
         case capturingPreview
         case recording
         case finishingRecording
@@ -24,22 +25,26 @@ final class ScreenCaptureStore: ObservableObject {
         didSet {
             if selectedDisplayID != oldValue {
                 previewImage = nil
+                captureRegion = nil
             }
         }
     }
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var lastRecordingURL: URL?
+    @Published private(set) var captureRegion: CaptureRegion?
 
     private var shareableDisplays: [CGDirectDisplayID: SCDisplay] = [:]
+    private var screens: [CGDirectDisplayID: NSScreen] = [:]
     private var applications: [SCRunningApplication] = []
     private var recordingSession: ScreenRecordingSession?
+    private var regionSelectionController: RegionSelectionController?
 
     var selectedDisplay: CaptureDisplay? {
         displays.first { $0.id == selectedDisplayID }
     }
 
     var isBusy: Bool {
-        state == .loading || state == .capturingPreview || state == .finishingRecording
+        state == .loading || state == .selectingRegion || state == .capturingPreview || state == .finishingRecording
     }
 
     var isRecording: Bool {
@@ -62,6 +67,7 @@ final class ScreenCaptureStore: ObservableObject {
                     return (CGDirectDisplayID(number.uint32Value), screen)
                 }
             )
+            screens = screensByID
 
             shareableDisplays = Dictionary(
                 uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
@@ -107,6 +113,42 @@ final class ScreenCaptureStore: ObservableObject {
         NSApplication.shared.terminate(nil)
     }
 
+    func selectRegion() async {
+        guard
+            state == .ready,
+            let display = selectedDisplay,
+            let screen = screens[display.id]
+        else {
+            return
+        }
+
+        state = .selectingRegion
+        let appWindows = NSApplication.shared.windows.filter { $0.isVisible }
+        appWindows.forEach { $0.orderOut(nil) }
+
+        let controller = RegionSelectionController()
+        regionSelectionController = controller
+        let appKitRect = await controller.selectRegion(on: screen)
+        regionSelectionController = nil
+
+        appWindows.forEach { $0.makeKeyAndOrderFront(nil) }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
+        if let appKitRect {
+            captureRegion = CaptureRegion(
+                appKitRect: appKitRect,
+                displayHeight: screen.frame.height
+            )
+            previewImage = nil
+        }
+        state = .ready
+    }
+
+    func clearRegion() {
+        captureRegion = nil
+        previewImage = nil
+    }
+
     func capturePreview() async {
         guard
             let display = selectedDisplay,
@@ -120,10 +162,13 @@ final class ScreenCaptureStore: ObservableObject {
         do {
             let filter = contentFilter(for: shareableDisplay)
             let configuration = SCStreamConfiguration()
-            let previewSize = display.previewSize(maxDimension: 1600)
+            let previewSize = outputSize(for: display, maxDimension: 1600)
             configuration.width = max(1, Int(previewSize.width))
             configuration.height = max(1, Int(previewSize.height))
             configuration.showsCursor = true
+            if let captureRegion {
+                configuration.sourceRect = captureRegion.rect
+            }
 
             let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
@@ -154,7 +199,7 @@ final class ScreenCaptureStore: ObservableObject {
         let session = ScreenRecordingSession(outputURL: outputURL)
 
         do {
-            let size = display.previewSize(maxDimension: 1920)
+            let size = outputSize(for: display, maxDimension: 1920)
             let configuration = SCStreamConfiguration()
             configuration.width = max(1, Int(size.width))
             configuration.height = max(1, Int(size.height))
@@ -162,6 +207,9 @@ final class ScreenCaptureStore: ObservableObject {
             configuration.queueDepth = 5
             configuration.pixelFormat = kCVPixelFormatType_32BGRA
             configuration.showsCursor = true
+            if let captureRegion {
+                configuration.sourceRect = captureRegion.rect
+            }
 
             try await session.start(
                 filter: contentFilter(for: shareableDisplay),
@@ -218,6 +266,20 @@ final class ScreenCaptureStore: ObservableObject {
             display: display,
             excludingApplications: ownApplications,
             exceptingWindows: []
+        )
+    }
+
+    private func outputSize(for display: CaptureDisplay, maxDimension: Int) -> CGSize {
+        guard
+            let captureRegion,
+            let screen = screens[display.id]
+        else {
+            return display.previewSize(maxDimension: maxDimension)
+        }
+
+        return captureRegion.outputSize(
+            backingScaleFactor: screen.backingScaleFactor,
+            maxDimension: maxDimension
         )
     }
 

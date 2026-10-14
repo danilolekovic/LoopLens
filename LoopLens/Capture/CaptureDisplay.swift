@@ -12,16 +12,6 @@ struct CaptureDisplay: Identifiable, Hashable, Sendable {
     }
 
     func previewSize(maxDimension: Int) -> CGSize {
-        precondition(maxDimension > 0)
-        let longestEdge = max(width, height)
-        guard longestEdge > maxDimension else {
-            return CGSize(width: width, height: height)
-        }
-
-        let scale = CGFloat(maxDimension) / CGFloat(longestEdge)
-        return CGSize(
-            width: Int(CGFloat(width) * scale),
-            height: Int(CGFloat(height) * scale)
-        )
+        CGSize(width: width, height: height).scaledToFit(maxDimension: maxDimension)
     }
 }

@@ -37,4 +37,25 @@ struct LoopLensTests {
 
         #expect(smallDisplay.previewSize(maxDimension: 1600) == CGSize(width: 1280, height: 720))
     }
+
+    @Test func captureRegionConvertsFromAppKitCoordinates() {
+        let region = CaptureRegion(
+            appKitRect: CGRect(x: 100, y: 200, width: 800, height: 450),
+            displayHeight: 1080
+        )
+
+        #expect(region.rect == CGRect(x: 100, y: 430, width: 800, height: 450))
+    }
+
+    @Test func captureRegionUsesRetinaScaleAndMaximumDimension() {
+        let region = CaptureRegion(
+            appKitRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            displayHeight: 1080
+        )
+
+        #expect(
+            region.outputSize(backingScaleFactor: 2, maxDimension: 1920)
+                == CGSize(width: 1920, height: 1280)
+        )
+    }
 }

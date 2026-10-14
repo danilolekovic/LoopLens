@@ -29,6 +29,13 @@ struct ContentView: View {
                 }
                 .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)
 
+                Button {
+                    Task { await captureStore.selectRegion() }
+                } label: {
+                    Label("Select region", systemImage: "crop")
+                }
+                .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy || captureStore.isRecording)
+
                 if captureStore.isRecording {
                     Button {
                         Task { await captureStore.stopRecording() }
@@ -58,6 +65,11 @@ struct ContentView: View {
                 Text(display.resolutionLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if captureStore.selectedDisplayID == display.id, let region = captureStore.captureRegion {
+                    Label(region.sizeLabel, systemImage: "crop")
+                        .font(.caption2)
+                        .foregroundStyle(.tint)
+                }
             }
             .padding(.vertical, 3)
             .tag(display.id)
@@ -78,7 +90,7 @@ struct ContentView: View {
     @ViewBuilder
     private var preview: some View {
         switch captureStore.state {
-        case .idle, .loading:
+        case .idle, .loading, .selectingRegion:
             ProgressView("Finding displays…")
                 .controlSize(.large)
 
@@ -146,7 +158,11 @@ struct ContentView: View {
                     Label("Ready to Capture", systemImage: "record.circle")
                 } description: {
                     if let display = captureStore.selectedDisplay {
-                        Text("Capture a preview of \(display.name) to verify access.")
+                        if let region = captureStore.captureRegion {
+                            Text("Capture a preview of the selected \(region.sizeLabel) region on \(display.name).")
+                        } else {
+                            Text("Capture a preview of \(display.name), or select a smaller region.")
+                        }
                     } else {
                         Text("Select a display from the sidebar.")
                     }
@@ -155,6 +171,11 @@ struct ContentView: View {
                         Task { await captureStore.capturePreview() }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(captureStore.selectedDisplay == nil)
+
+                    Button("Select Region") {
+                        Task { await captureStore.selectRegion() }
+                    }
                     .disabled(captureStore.selectedDisplay == nil)
                 }
             }
@@ -167,6 +188,19 @@ struct ContentView: View {
             }
         }
         .navigationTitle(captureStore.selectedDisplay?.name ?? "Capture Preview")
+        .overlay(alignment: .topTrailing) {
+            if let region = captureStore.captureRegion, captureStore.state == .ready {
+                HStack(spacing: 8) {
+                    Label(region.sizeLabel, systemImage: "crop")
+                    Button("Use Full Display") {
+                        captureStore.clearRegion()
+                    }
+                }
+                .padding(10)
+                .background(.regularMaterial, in: Capsule())
+                .padding()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             recordingStatus
         }
