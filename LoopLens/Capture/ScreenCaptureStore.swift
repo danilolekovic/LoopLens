@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CoreGraphics
+import CoreMedia
 import ScreenCaptureKit
 
 @MainActor
@@ -11,6 +12,8 @@ final class ScreenCaptureStore: ObservableObject {
         case permissionRequired
         case ready
         case capturingPreview
+        case recording
+        case finishingRecording
         case failed(String)
     }
 
@@ -24,15 +27,22 @@ final class ScreenCaptureStore: ObservableObject {
         }
     }
     @Published private(set) var previewImage: NSImage?
+    @Published private(set) var lastRecordingURL: URL?
 
     private var shareableDisplays: [CGDirectDisplayID: SCDisplay] = [:]
+    private var applications: [SCRunningApplication] = []
+    private var recordingSession: ScreenRecordingSession?
 
     var selectedDisplay: CaptureDisplay? {
         displays.first { $0.id == selectedDisplayID }
     }
 
     var isBusy: Bool {
-        state == .loading || state == .capturingPreview
+        state == .loading || state == .capturingPreview || state == .finishingRecording
+    }
+
+    var isRecording: Bool {
+        state == .recording || state == .finishingRecording
     }
 
     func loadDisplays() async {
@@ -60,6 +70,7 @@ final class ScreenCaptureStore: ObservableObject {
             shareableDisplays = Dictionary(
                 uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
             )
+            applications = content.applications
             displays = content.displays
                 .map { display in
                     CaptureDisplay(
@@ -106,11 +117,7 @@ final class ScreenCaptureStore: ObservableObject {
         state = .capturingPreview
 
         do {
-            let filter = SCContentFilter(
-                display: shareableDisplay,
-                excludingApplications: [],
-                exceptingWindows: []
-            )
+            let filter = contentFilter(for: shareableDisplay)
             let configuration = SCStreamConfiguration()
             let previewSize = display.previewSize(maxDimension: 1600)
             configuration.width = max(1, Int(previewSize.width))
@@ -129,5 +136,87 @@ final class ScreenCaptureStore: ObservableObject {
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    func startRecording() async {
+        guard
+            state == .ready,
+            let display = selectedDisplay,
+            let shareableDisplay = shareableDisplays[display.id]
+        else {
+            return
+        }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoopLens-\(UUID().uuidString)")
+            .appendingPathExtension("mov")
+        let session = ScreenRecordingSession(outputURL: outputURL)
+
+        do {
+            let size = display.previewSize(maxDimension: 1920)
+            let configuration = SCStreamConfiguration()
+            configuration.width = max(1, Int(size.width))
+            configuration.height = max(1, Int(size.height))
+            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+            configuration.queueDepth = 5
+            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            configuration.showsCursor = true
+
+            try await session.start(
+                filter: contentFilter(for: shareableDisplay),
+                configuration: configuration
+            )
+            recordingSession = session
+            lastRecordingURL = nil
+            state = .recording
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func stopRecording() async {
+        guard let recordingSession else { return }
+        state = .finishingRecording
+
+        do {
+            lastRecordingURL = try await recordingSession.stop()
+            self.recordingSession = nil
+            state = .ready
+        } catch {
+            self.recordingSession = nil
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func saveLastRecording() {
+        guard let lastRecordingURL else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.quickTimeMovie]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "LoopLens Recording.mov"
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: lastRecordingURL, to: destinationURL)
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func contentFilter(for display: SCDisplay) -> SCContentFilter {
+        let ownApplications = applications.filter {
+            $0.bundleIdentifier == Bundle.main.bundleIdentifier
+        }
+        return SCContentFilter(
+            display: display,
+            excludingApplications: ownApplications,
+            exceptingWindows: []
+        )
     }
 }

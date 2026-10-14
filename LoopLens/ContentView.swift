@@ -28,6 +28,24 @@ struct ContentView: View {
                     Label("Capture preview", systemImage: "camera")
                 }
                 .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)
+
+                if captureStore.isRecording {
+                    Button {
+                        Task { await captureStore.stopRecording() }
+                    } label: {
+                        Label("Stop recording", systemImage: "stop.fill")
+                    }
+                    .tint(.red)
+                    .disabled(captureStore.state == .finishingRecording)
+                } else {
+                    Button {
+                        Task { await captureStore.startRecording() }
+                    } label: {
+                        Label("Start recording", systemImage: "record.circle")
+                    }
+                    .tint(.red)
+                    .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)
+                }
             }
         }
     }
@@ -87,7 +105,7 @@ struct ContentView: View {
                 }
             }
 
-        case .ready, .capturingPreview:
+        case .ready, .capturingPreview, .recording, .finishingRecording:
             previewContent
         }
     }
@@ -129,6 +147,52 @@ struct ContentView: View {
             }
         }
         .navigationTitle(captureStore.selectedDisplay?.name ?? "Capture Preview")
+        .safeAreaInset(edge: .bottom) {
+            recordingStatus
+        }
+    }
+
+    @ViewBuilder
+    private var recordingStatus: some View {
+        if captureStore.state == .recording {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 9, height: 9)
+                Text("Recording")
+                    .fontWeight(.medium)
+                Spacer()
+                Button("Stop") {
+                    Task { await captureStore.stopRecording() }
+                }
+                .keyboardShortcut(".", modifiers: .command)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(.bar)
+        } else if captureStore.state == .finishingRecording {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Finishing recording…")
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(.bar)
+        } else if captureStore.lastRecordingURL != nil {
+            HStack {
+                Label("Recording ready", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Save Recording…") {
+                    captureStore.saveLastRecording()
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(.bar)
+        }
     }
 }
 
