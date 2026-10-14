@@ -102,10 +102,10 @@ struct ContentView: View {
             ContentUnavailableView {
                 Label("Restart Required", systemImage: "arrow.clockwise.circle")
             } description: {
-                Text("Screen recording is enabled. macOS loads this permission when LoopLens starts, so restart the app to continue.")
+                Text("Screen recording is enabled. Quit LoopLens, then run it again from Xcode to continue.")
             } actions: {
-                Button("Restart LoopLens") {
-                    Task { await captureStore.restartApplication() }
+                Button("Quit LoopLens") {
+                    captureStore.quitApplication()
                 }
                 .buttonStyle(.borderedProminent)
 

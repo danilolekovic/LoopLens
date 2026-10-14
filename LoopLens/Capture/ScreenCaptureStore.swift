@@ -103,19 +103,8 @@ final class ScreenCaptureStore: ObservableObject {
         }
     }
 
-    func restartApplication() async {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-
-        do {
-            _ = try await NSWorkspace.shared.openApplication(
-                at: Bundle.main.bundleURL,
-                configuration: configuration
-            )
-            NSApplication.shared.terminate(nil)
-        } catch {
-            state = .failed("LoopLens could not restart automatically. Quit it and run it again. \(error.localizedDescription)")
-        }
+    func quitApplication() {
+        NSApplication.shared.terminate(nil)
     }
 
     func capturePreview() async {
