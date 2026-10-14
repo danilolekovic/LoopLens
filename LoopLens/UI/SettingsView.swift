@@ -5,15 +5,37 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Toggle("Collapse to a recording floaty", isOn: $captureStore.usesRecordingFloaty)
-            Text("Hide the main window while recording and show a compact timer with a Stop button.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Section("Recording") {
+                Toggle("Collapse to a recording floaty", isOn: $captureStore.usesRecordingFloaty)
+                Text("Hide the main window while recording and show a compact timer with a Stop button.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-            Toggle("Hide LoopLens controls from recordings", isOn: $captureStore.excludesLoopLensFromCapture)
-            Text("Exclude the editor and recording floaty from ScreenCaptureKit output.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Toggle("Hide LoopLens controls from recordings", isOn: $captureStore.excludesLoopLensFromCapture)
+                Text("Exclude the editor and recording floaty from ScreenCaptureKit output.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("GIF output") {
+                LabeledContent("Save to") {
+                    Text(captureStore.outputFolderURL.path(percentEncoded: false))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                HStack {
+                    Button("Choose Folder…") {
+                        captureStore.chooseOutputFolder()
+                    }
+                    Spacer()
+                    Button("Restore Default") {
+                        captureStore.restoreDefaultOutputFolder()
+                    }
+                    .disabled(captureStore.usesDefaultOutputFolder)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()

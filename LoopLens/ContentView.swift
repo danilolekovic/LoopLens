@@ -169,6 +169,11 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
                     .padding(32)
+            } else if let recordingURL = captureStore.lastRecordingURL {
+                VideoPlaybackView(url: recordingURL)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
+                    .padding(32)
             } else if let image = captureStore.previewImage {
                 Image(nsImage: image)
                     .resizable()
@@ -264,22 +269,6 @@ struct ContentView: View {
                 Text("Encoding GIF… \(Int(progress * 100))%")
                     .monospacedDigit()
                 Spacer()
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            .background(.bar)
-        } else if captureStore.lastRecordingURL != nil {
-            HStack {
-                Label(
-                    captureStore.lastGIFURL == nil ? "Recording ready" : "GIF exported",
-                    systemImage: "checkmark.circle.fill"
-                )
-                    .foregroundStyle(.green)
-                Spacer()
-                Button("Export GIF…") {
-                    Task { await captureStore.exportGIF() }
-                }
-                .buttonStyle(.borderedProminent)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)

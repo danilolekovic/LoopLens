@@ -33,6 +33,7 @@ final class ScreenCaptureStore: ObservableObject {
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var lastRecordingURL: URL?
     @Published private(set) var lastGIFURL: URL?
+    @Published private(set) var outputFolderURL: URL
     @Published private(set) var captureRegion: CaptureRegion?
     @Published var recordingName = "LoopLens Recording"
     @Published var gifFramesPerSecond = 15
@@ -53,9 +54,13 @@ final class ScreenCaptureStore: ObservableObject {
     private var hiddenWindows: [NSWindow] = []
     private let gifEncoder = GIFEncoder()
     private let defaults: UserDefaults
+    private let outputFolderManager: OutputFolderManager
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        let outputFolderManager = OutputFolderManager(defaults: defaults)
+        self.outputFolderManager = outputFolderManager
+        outputFolderURL = outputFolderManager.savedURL() ?? outputFolderManager.defaultURL
         usesRecordingFloaty = defaults.object(forKey: PreferenceKey.usesRecordingFloaty) as? Bool ?? true
         excludesLoopLensFromCapture = defaults.object(
             forKey: PreferenceKey.excludesLoopLensFromCapture
@@ -84,6 +89,10 @@ final class ScreenCaptureStore: ObservableObject {
         let fallback = trimmed.isEmpty ? "LoopLens Recording" : trimmed
         let invalidCharacters = CharacterSet(charactersIn: "/:")
         return fallback.components(separatedBy: invalidCharacters).joined(separator: "-")
+    }
+
+    var usesDefaultOutputFolder: Bool {
+        outputFolderURL.standardizedFileURL == outputFolderManager.defaultURL.standardizedFileURL
     }
 
     func loadDisplays() async {
@@ -270,6 +279,8 @@ final class ScreenCaptureStore: ObservableObject {
             self.recordingSession = nil
             state = .ready
             leaveRecordingPresentation()
+            await Task.yield()
+            await saveGIFAutomatically()
         } catch {
             self.recordingSession = nil
             leaveRecordingPresentation()
@@ -277,20 +288,52 @@ final class ScreenCaptureStore: ObservableObject {
         }
     }
 
-    func exportGIF() async {
-        guard let lastRecordingURL else { return }
-
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.gif]
+    func chooseOutputFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "\(safeRecordingName).gif"
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = outputFolderURL
+        panel.prompt = "Choose"
+        panel.message = "Choose where LoopLens saves finished GIFs."
 
-        guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
+            try outputFolderManager.save(url)
+            outputFolderURL = url
+        } catch {
+            state = .failed("Could not remember the output folder: \(error.localizedDescription)")
+        }
+    }
+
+    func restoreDefaultOutputFolder() {
+        outputFolderManager.reset()
+        outputFolderURL = outputFolderManager.defaultURL
+    }
+
+    private func saveGIFAutomatically() async {
+        guard let lastRecordingURL else { return }
+
+        let folderURL = outputFolderURL
+        let isSecurityScoped = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if isSecurityScoped {
+                folderURL.stopAccessingSecurityScopedResource()
             }
+        }
+
+        let destinationURL = outputFolderManager.availableURL(
+            for: safeRecordingName,
+            in: folderURL
+        )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: folderURL,
+                withIntermediateDirectories: true
+            )
 
             state = .exportingGIF(0)
             let settings = GIFExportSettings(

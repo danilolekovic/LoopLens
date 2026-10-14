@@ -93,4 +93,17 @@ struct LoopLensTests {
         #expect(restoredStore.usesRecordingFloaty == false)
         #expect(restoredStore.excludesLoopLensFromCapture == false)
     }
+
+    @Test func outputFolderUsesCollisionSafeNames() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let existingURL = folder.appendingPathComponent("Demo.gif")
+        _ = FileManager.default.createFile(atPath: existingURL.path, contents: Data())
+        let manager = OutputFolderManager(defaults: UserDefaults.standard)
+
+        #expect(manager.availableURL(for: "Demo", in: folder).lastPathComponent == "Demo 2.gif")
+    }
 }
