@@ -10,6 +10,7 @@ final class ScreenCaptureStore: ObservableObject {
         case idle
         case loading
         case permissionRequired
+        case restartRequired
         case ready
         case capturingPreview
         case recording
@@ -47,11 +48,6 @@ final class ScreenCaptureStore: ObservableObject {
 
     func loadDisplays() async {
         state = .loading
-
-        guard CGPreflightScreenCaptureAccess() else {
-            state = .permissionRequired
-            return
-        }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
@@ -94,16 +90,32 @@ final class ScreenCaptureStore: ObservableObject {
             }
             state = .ready
         } catch {
-            state = .failed(error.localizedDescription)
+            state = permissionState(for: error)
         }
     }
 
     func requestPermission() async {
-        guard CGRequestScreenCaptureAccess() else {
+        if CGRequestScreenCaptureAccess() {
+            state = .restartRequired
+        } else {
+            openScreenRecordingSettings()
             state = .permissionRequired
-            return
         }
-        await loadDisplays()
+    }
+
+    func restartApplication() async {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+
+        do {
+            _ = try await NSWorkspace.shared.openApplication(
+                at: Bundle.main.bundleURL,
+                configuration: configuration
+            )
+            NSApplication.shared.terminate(nil)
+        } catch {
+            state = .failed("LoopLens could not restart automatically. Quit it and run it again. \(error.localizedDescription)")
+        }
     }
 
     func capturePreview() async {
@@ -218,5 +230,26 @@ final class ScreenCaptureStore: ObservableObject {
             excludingApplications: ownApplications,
             exceptingWindows: []
         )
+    }
+
+    private func permissionState(for error: Error) -> State {
+        let error = error as NSError
+        guard
+            error.domain == SCStreamError.errorDomain,
+            error.code == SCStreamError.Code.userDeclined.rawValue
+        else {
+            return .failed(error.localizedDescription)
+        }
+
+        return CGPreflightScreenCaptureAccess() ? .restartRequired : .permissionRequired
+    }
+
+    private func openScreenRecordingSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }

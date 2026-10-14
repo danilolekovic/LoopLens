@@ -86,12 +86,32 @@ struct ContentView: View {
             ContentUnavailableView {
                 Label("Screen Recording Access", systemImage: "rectangle.dashed.badge.record")
             } description: {
-                Text("LoopLens needs permission to see and record your displays.")
+                Text("Allow LoopLens in Privacy & Security, then return here. macOS may require LoopLens to restart.")
             } actions: {
                 Button("Allow Screen Recording") {
                     Task { await captureStore.requestPermission() }
                 }
                 .buttonStyle(.borderedProminent)
+
+                Button("Check Again") {
+                    Task { await captureStore.loadDisplays() }
+                }
+            }
+
+        case .restartRequired:
+            ContentUnavailableView {
+                Label("Restart Required", systemImage: "arrow.clockwise.circle")
+            } description: {
+                Text("Screen recording is enabled. macOS loads this permission when LoopLens starts, so restart the app to continue.")
+            } actions: {
+                Button("Restart LoopLens") {
+                    Task { await captureStore.restartApplication() }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Check Again") {
+                    Task { await captureStore.loadDisplays() }
+                }
             }
 
         case let .failed(message):
