@@ -44,11 +44,13 @@ final class ScreenCaptureStore: ObservableObject {
 
     private var shareableDisplays: [CGDirectDisplayID: SCDisplay] = [:]
     private var screens: [CGDirectDisplayID: NSScreen] = [:]
-    private var applications: [SCRunningApplication] = []
     private var recordingSession: ScreenRecordingSession?
     private var regionSelectionController: RegionSelectionController?
     private var recordingFloatyController: RecordingFloatyController?
     private var captureBorderOverlayController: CaptureBorderOverlayController?
+    private var circleEffectOverlayController: CircleEffectOverlayController?
+    private var recordingInteractionController: RecordingInteractionController?
+    private var zoomUpdateTask: Task<Void, Never>?
     private var hiddenWindows: [NSWindow] = []
     private let gifEncoder = GIFEncoder()
     private let defaults: UserDefaults
@@ -122,7 +124,6 @@ final class ScreenCaptureStore: ObservableObject {
             shareableDisplays = Dictionary(
                 uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
             )
-            applications = content.applications
             displays = content.displays
                 .map { display in
                     CaptureDisplay(
@@ -204,7 +205,8 @@ final class ScreenCaptureStore: ObservableObject {
         guard
             state == .ready,
             let display = selectedDisplay,
-            let shareableDisplay = shareableDisplays[display.id]
+            shareableDisplays[display.id] != nil,
+            let screen = screens[display.id]
         else {
             return
         }
@@ -214,6 +216,10 @@ final class ScreenCaptureStore: ObservableObject {
             .appendingPathComponent("LoopLens-\(UUID().uuidString)")
             .appendingPathExtension("mov")
         let session = ScreenRecordingSession(outputURL: outputURL)
+        let activeRegion = captureRegion ?? CaptureRegion(
+            appKitRect: CGRect(origin: .zero, size: screen.frame.size),
+            displayHeight: screen.frame.height
+        )
 
         do {
             let size = outputSize(for: display, maxDimension: 1920)
@@ -224,19 +230,28 @@ final class ScreenCaptureStore: ObservableObject {
             configuration.queueDepth = 5
             configuration.pixelFormat = kCVPixelFormatType_32BGRA
             configuration.showsCursor = true
-            if let captureRegion {
-                configuration.sourceRect = captureRegion.rect
-            }
+            configuration.scalesToFit = true
+            configuration.sourceRect = activeRegion.rect
+
+            let effectWindowID = enterRecordingPresentation(
+                on: screen,
+                region: activeRegion,
+                session: session
+            )
+            let filter = try await recordingContentFilter(
+                displayID: display.id,
+                effectWindowID: effectWindowID
+            )
 
             try await session.start(
-                filter: contentFilter(for: shareableDisplay),
+                filter: filter,
                 configuration: configuration
             )
             recordingSession = session
             lastGIFURL = nil
             state = .recording
-            enterRecordingPresentation(on: screens[display.id])
         } catch {
+            leaveRecordingPresentation()
             try? FileManager.default.removeItem(at: outputURL)
             state = .failed(error.localizedDescription)
         }
@@ -327,14 +342,28 @@ final class ScreenCaptureStore: ObservableObject {
         }
     }
 
-    private func contentFilter(for display: SCDisplay) -> SCContentFilter {
+    private func recordingContentFilter(
+        displayID: CGDirectDisplayID,
+        effectWindowID: CGWindowID
+    ) async throws -> SCContentFilter {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw RecordingSetupError.displayUnavailable
+        }
+
         let ownApplications = excludesLoopLensFromCapture
-            ? applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+            ? content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+            : []
+        let effectWindows = excludesLoopLensFromCapture
+            ? content.windows.filter { $0.windowID == effectWindowID }
             : []
         return SCContentFilter(
             display: display,
             excludingApplications: ownApplications,
-            exceptingWindows: []
+            exceptingWindows: effectWindows
         )
     }
 
@@ -360,7 +389,11 @@ final class ScreenCaptureStore: ObservableObject {
         state = displays.isEmpty ? .idle : .ready
     }
 
-    private func enterRecordingPresentation(on screen: NSScreen?) {
+    private func enterRecordingPresentation(
+        on screen: NSScreen,
+        region: CaptureRegion,
+        session: ScreenRecordingSession
+    ) -> CGWindowID {
         if usesRecordingFloaty {
             hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible }
             hiddenWindows.forEach { $0.orderOut(nil) }
@@ -372,14 +405,40 @@ final class ScreenCaptureStore: ObservableObject {
             controller.show(on: screen)
         }
 
-        if let captureRegion, let screen {
-            let controller = CaptureBorderOverlayController(region: captureRegion, on: screen)
-            captureBorderOverlayController = controller
-            controller.show()
+        let borderController = CaptureBorderOverlayController(region: region, on: screen)
+        captureBorderOverlayController = borderController
+        borderController.show()
+
+        let circleController = CircleEffectOverlayController(region: region, on: screen)
+        circleEffectOverlayController = circleController
+        circleController.show()
+
+        let interactionController = RecordingInteractionController(
+            region: region,
+            screen: screen,
+            borderOverlay: borderController,
+            circleOverlay: circleController
+        ) { [weak self, weak session] zoomRect in
+            guard let self, let session else { return }
+            self.zoomUpdateTask?.cancel()
+            self.zoomUpdateTask = Task {
+                try? await session.updateSourceRect(zoomRect)
+            }
         }
+        recordingInteractionController = interactionController
+        interactionController.start()
+        return circleController.windowNumber
     }
 
     private func leaveRecordingPresentation() {
+        zoomUpdateTask?.cancel()
+        zoomUpdateTask = nil
+        recordingInteractionController?.stop()
+        recordingInteractionController = nil
+
+        circleEffectOverlayController?.close()
+        circleEffectOverlayController = nil
+
         captureBorderOverlayController?.close()
         captureBorderOverlayController = nil
 
@@ -421,5 +480,13 @@ final class ScreenCaptureStore: ObservableObject {
     private enum PreferenceKey {
         static let usesRecordingFloaty = "usesRecordingFloaty"
         static let excludesLoopLensFromCapture = "excludesLoopLensFromCapture"
+    }
+
+    private enum RecordingSetupError: LocalizedError {
+        case displayUnavailable
+
+        var errorDescription: String? {
+            "The selected display became unavailable before recording started."
+        }
     }
 }

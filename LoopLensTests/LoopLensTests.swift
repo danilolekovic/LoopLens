@@ -110,4 +110,26 @@ struct LoopLensTests {
 
         #expect(manager.availableURL(for: "Demo", in: folder).lastPathComponent == "Demo 2.gif")
     }
+
+    @Test func cursorCircleRecognizerDetectsRepeatedRotation() {
+        var recognizer = CursorCircleRecognizer()
+        let start = Date(timeIntervalSince1970: 1_000)
+        var detectedCircle: CGRect?
+
+        for index in 0..<72 {
+            let angle = CGFloat(index) / 72 * 4 * .pi
+            let point = CGPoint(
+                x: 240 + cos(angle) * 64,
+                y: 180 + sin(angle) * 64
+            )
+            detectedCircle = recognizer.add(
+                point,
+                at: start.addingTimeInterval(Double(index) * 0.012)
+            ) ?? detectedCircle
+        }
+
+        #expect(detectedCircle != nil)
+        #expect(abs((detectedCircle?.midX ?? 0) - 240) < 8)
+        #expect(abs((detectedCircle?.midY ?? 0) - 180) < 8)
+    }
 }

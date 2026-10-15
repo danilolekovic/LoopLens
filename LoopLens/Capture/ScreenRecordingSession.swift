@@ -28,6 +28,7 @@ final class ScreenRecordingSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var writer: AVAssetWriter?
     private var writerInput: AVAssetWriterInput?
+    private var configuration: SCStreamConfiguration?
     private var hasStartedWriting = false
     private var streamError: Error?
 
@@ -60,11 +61,18 @@ final class ScreenRecordingSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
         self.writer = writer
         writerInput = input
+        self.configuration = configuration
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
         self.stream = stream
         try await stream.startCapture()
+    }
+
+    func updateSourceRect(_ sourceRect: CGRect) async throws {
+        guard let stream, let configuration else { return }
+        configuration.sourceRect = sourceRect
+        try await stream.updateConfiguration(configuration)
     }
 
     func stop() async throws -> URL {
