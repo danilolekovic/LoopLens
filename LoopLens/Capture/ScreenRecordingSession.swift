@@ -105,6 +105,7 @@ final class ScreenRecordingSession: NSObject, SCStreamOutput, SCStreamDelegate {
         guard
             outputType == .screen,
             sampleBuffer.isValid,
+            isCompleteFrame(sampleBuffer),
             let writer,
             let writerInput
         else {
@@ -117,8 +118,10 @@ final class ScreenRecordingSession: NSObject, SCStreamOutput, SCStreamDelegate {
             hasStartedWriting = true
         }
 
-        if writerInput.isReadyForMoreMediaData {
-            writerInput.append(sampleBuffer)
+        if writerInput.isReadyForMoreMediaData, !writerInput.append(sampleBuffer) {
+            streamError = writer.error ?? RecordingError.writerFailed(
+                "A screen frame could not be encoded."
+            )
         }
     }
 
@@ -126,5 +129,19 @@ final class ScreenRecordingSession: NSObject, SCStreamOutput, SCStreamDelegate {
         videoQueue.async { [weak self] in
             self?.streamError = error
         }
+    }
+
+    private func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        guard
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(
+                sampleBuffer,
+                createIfNecessary: false
+            ) as? [[SCStreamFrameInfo: Any]],
+            let statusRawValue = attachments.first?[.status] as? Int,
+            let status = SCFrameStatus(rawValue: statusRawValue)
+        else {
+            return false
+        }
+        return status == .complete
     }
 }

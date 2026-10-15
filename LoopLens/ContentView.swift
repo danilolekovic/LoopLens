@@ -23,13 +23,6 @@ struct ContentView: View {
                 .disabled(captureStore.isBusy)
 
                 Button {
-                    Task { await captureStore.capturePreview() }
-                } label: {
-                    Label("Capture preview", systemImage: "camera")
-                }
-                .disabled(captureStore.selectedDisplay == nil || captureStore.isBusy)
-
-                Button {
                     Task { await captureStore.selectRegion() }
                 } label: {
                     Label("Record region", systemImage: "crop")
@@ -146,16 +139,14 @@ struct ContentView: View {
 
         case let .failed(message):
             ContentUnavailableView {
-                Label("Unable to Load Displays", systemImage: "exclamationmark.triangle")
+                Label("LoopLens Hit a Problem", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") {
-                    Task { await captureStore.loadDisplays() }
-                }
+                Button("Dismiss") { captureStore.dismissFailure() }
             }
 
-        case .ready, .capturingPreview, .recording, .finishingRecording, .exportingGIF:
+        case .ready, .recording, .finishingRecording, .exportingGIF:
             previewContent
         }
     }
@@ -166,18 +157,13 @@ struct ContentView: View {
 
             if let gifURL = captureStore.lastGIFURL {
                 AnimatedGIFView(url: gifURL)
+                    .aspectRatio(captureStore.recordingAspectRatio, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
                     .padding(32)
             } else if let recordingURL = captureStore.lastRecordingURL {
                 VideoPlaybackView(url: recordingURL)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
-                    .padding(32)
-            } else if let image = captureStore.previewImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
+                    .aspectRatio(captureStore.recordingAspectRatio, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
                     .padding(32)
@@ -187,20 +173,14 @@ struct ContentView: View {
                 } description: {
                     if let display = captureStore.selectedDisplay {
                         if let region = captureStore.captureRegion {
-                            Text("Capture a preview of the selected \(region.sizeLabel) region on \(display.name).")
+                            Text("Record the selected \(region.sizeLabel) region on \(display.name).")
                         } else {
-                            Text("Capture a preview of \(display.name), or select a smaller region.")
+                            Text("Record \(display.name), or select a smaller region.")
                         }
                     } else {
                         Text("Select a display from the sidebar.")
                     }
                 } actions: {
-                    Button("Capture Preview") {
-                        Task { await captureStore.capturePreview() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(captureStore.selectedDisplay == nil)
-
                     Button("Select & Record Region") {
                         Task { await captureStore.selectRegion() }
                     }
@@ -208,14 +188,8 @@ struct ContentView: View {
                 }
             }
 
-            if captureStore.state == .capturingPreview {
-                ProgressView()
-                    .controlSize(.large)
-                    .padding(20)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
         }
-        .navigationTitle(captureStore.selectedDisplay?.name ?? "Capture Preview")
+        .navigationTitle(captureStore.selectedDisplay?.name ?? "Recording")
         .overlay(alignment: .topTrailing) {
             if let region = captureStore.captureRegion, captureStore.state == .ready {
                 HStack(spacing: 8) {

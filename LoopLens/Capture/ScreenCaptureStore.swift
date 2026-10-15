@@ -13,7 +13,6 @@ final class ScreenCaptureStore: ObservableObject {
         case restartRequired
         case ready
         case selectingRegion
-        case capturingPreview
         case recording
         case finishingRecording
         case exportingGIF(Double)
@@ -25,12 +24,10 @@ final class ScreenCaptureStore: ObservableObject {
     @Published var selectedDisplayID: CGDirectDisplayID? {
         didSet {
             if selectedDisplayID != oldValue {
-                previewImage = nil
                 captureRegion = nil
             }
         }
     }
-    @Published private(set) var previewImage: NSImage?
     @Published private(set) var lastRecordingURL: URL?
     @Published private(set) var lastGIFURL: URL?
     @Published private(set) var outputFolderURL: URL
@@ -74,7 +71,7 @@ final class ScreenCaptureStore: ObservableObject {
 
     var isBusy: Bool {
         switch state {
-        case .loading, .selectingRegion, .capturingPreview, .finishingRecording, .exportingGIF:
+        case .loading, .selectingRegion, .finishingRecording, .exportingGIF:
             true
         default:
             false
@@ -94,6 +91,14 @@ final class ScreenCaptureStore: ObservableObject {
 
     var usesDefaultOutputFolder: Bool {
         outputFolderURL.standardizedFileURL == outputFolderManager.defaultURL.standardizedFileURL
+    }
+
+    var recordingAspectRatio: CGFloat {
+        if let captureRegion {
+            return captureRegion.rect.width / max(captureRegion.rect.height, 1)
+        }
+        guard let selectedDisplay else { return 16 / 9 }
+        return CGFloat(selectedDisplay.width) / CGFloat(max(selectedDisplay.height, 1))
     }
 
     func loadDisplays() async {
@@ -137,7 +142,6 @@ final class ScreenCaptureStore: ObservableObject {
 
             if !displays.contains(where: { $0.id == selectedDisplayID }) {
                 selectedDisplayID = displays.first?.id
-                previewImage = nil
             }
             state = .ready
         } catch {
@@ -184,7 +188,6 @@ final class ScreenCaptureStore: ObservableObject {
                 appKitRect: appKitRect,
                 displayHeight: screen.frame.height
             )
-            previewImage = nil
         }
         state = .ready
 
@@ -195,42 +198,6 @@ final class ScreenCaptureStore: ObservableObject {
 
     func clearRegion() {
         captureRegion = nil
-        previewImage = nil
-    }
-
-    func capturePreview() async {
-        guard
-            let display = selectedDisplay,
-            let shareableDisplay = shareableDisplays[display.id]
-        else {
-            return
-        }
-
-        state = .capturingPreview
-
-        do {
-            let filter = contentFilter(for: shareableDisplay)
-            let configuration = SCStreamConfiguration()
-            let previewSize = outputSize(for: display, maxDimension: 1600)
-            configuration.width = max(1, Int(previewSize.width))
-            configuration.height = max(1, Int(previewSize.height))
-            configuration.showsCursor = true
-            if let captureRegion {
-                configuration.sourceRect = captureRegion.rect
-            }
-
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: configuration
-            )
-            previewImage = NSImage(
-                cgImage: image,
-                size: NSSize(width: image.width, height: image.height)
-            )
-            state = .ready
-        } catch {
-            state = .failed(error.localizedDescription)
-        }
     }
 
     func startRecording() async {
@@ -251,8 +218,8 @@ final class ScreenCaptureStore: ObservableObject {
         do {
             let size = outputSize(for: display, maxDimension: 1920)
             let configuration = SCStreamConfiguration()
-            configuration.width = max(1, Int(size.width))
-            configuration.height = max(1, Int(size.height))
+            configuration.width = evenPixelDimension(size.width)
+            configuration.height = evenPixelDimension(size.height)
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
             configuration.queueDepth = 5
             configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -383,6 +350,14 @@ final class ScreenCaptureStore: ObservableObject {
             backingScaleFactor: screen.backingScaleFactor,
             maxDimension: maxDimension
         )
+    }
+
+    private func evenPixelDimension(_ value: CGFloat) -> Int {
+        max(2, Int(value.rounded(.down)) & ~1)
+    }
+
+    func dismissFailure() {
+        state = displays.isEmpty ? .idle : .ready
     }
 
     private func enterRecordingPresentation(on screen: NSScreen?) {
