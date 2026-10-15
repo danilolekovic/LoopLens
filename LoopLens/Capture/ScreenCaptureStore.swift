@@ -210,6 +210,7 @@ final class ScreenCaptureStore: ObservableObject {
         else {
             return
         }
+        guard ensureOutputFolderAccess() else { return }
 
         removeTemporaryRecording()
         let outputURL = FileManager.default.temporaryDirectory
@@ -298,16 +299,18 @@ final class ScreenCaptureStore: ObservableObject {
     func restoreDefaultOutputFolder() {
         outputFolderManager.reset()
         outputFolderURL = outputFolderManager.defaultURL
+        _ = ensureOutputFolderAccess()
     }
 
     private func saveGIFAutomatically() async {
         guard let lastRecordingURL else { return }
 
         let folderURL = outputFolderURL
-        let isSecurityScoped = folderURL.startAccessingSecurityScopedResource()
+        let accessURL = outputFolderManager.savedAccessURL() ?? folderURL
+        let isSecurityScoped = accessURL.startAccessingSecurityScopedResource()
         defer {
             if isSecurityScoped {
-                folderURL.stopAccessingSecurityScopedResource()
+                accessURL.stopAccessingSecurityScopedResource()
             }
         }
 
@@ -339,6 +342,42 @@ final class ScreenCaptureStore: ObservableObject {
         } catch {
             try? FileManager.default.removeItem(at: destinationURL)
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func ensureOutputFolderAccess() -> Bool {
+        if let savedURL = outputFolderManager.savedURL() {
+            outputFolderURL = savedURL
+            return true
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = outputFolderManager.defaultURL.deletingLastPathComponent()
+        panel.prompt = "Allow Saving"
+        panel.message = "Choose Documents to let LoopLens create and automatically save to Documents/LoopLens. You only need to do this once."
+
+        guard panel.runModal() == .OK, let selectedURL = panel.url else {
+            return false
+        }
+
+        let selectedIsLoopLens = selectedURL.lastPathComponent
+            .localizedCaseInsensitiveCompare("LoopLens") == .orderedSame
+
+        do {
+            try outputFolderManager.save(
+                selectedURL,
+                appendingLoopLensSubfolder: !selectedIsLoopLens
+            )
+            outputFolderURL = outputFolderManager.savedURL()
+                ?? selectedURL.appendingPathComponent("LoopLens", isDirectory: true)
+            return true
+        } catch {
+            state = .failed("Could not remember the output folder: \(error.localizedDescription)")
+            return false
         }
     }
 

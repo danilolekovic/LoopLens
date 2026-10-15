@@ -4,6 +4,7 @@ import Darwin
 struct OutputFolderManager {
     private let defaults: UserDefaults
     private let bookmarkKey = "outputFolderBookmark"
+    private let appendsLoopLensSubfolderKey = "outputFolderAppendsLoopLensSubfolder"
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -26,6 +27,14 @@ struct OutputFolderManager {
     }
 
     func savedURL() -> URL? {
+        guard let accessURL = savedAccessURL() else { return nil }
+        if defaults.bool(forKey: appendsLoopLensSubfolderKey) {
+            return accessURL.appendingPathComponent("LoopLens", isDirectory: true)
+        }
+        return accessURL
+    }
+
+    func savedAccessURL() -> URL? {
         guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
 
         var isStale = false
@@ -39,12 +48,17 @@ struct OutputFolderManager {
         }
 
         if isStale {
-            try? save(url)
+            try? saveBookmark(for: url)
         }
         return url
     }
 
-    func save(_ url: URL) throws {
+    func save(_ url: URL, appendingLoopLensSubfolder: Bool = false) throws {
+        try saveBookmark(for: url)
+        defaults.set(appendingLoopLensSubfolder, forKey: appendsLoopLensSubfolderKey)
+    }
+
+    private func saveBookmark(for url: URL) throws {
         let data = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
@@ -55,6 +69,7 @@ struct OutputFolderManager {
 
     func reset() {
         defaults.removeObject(forKey: bookmarkKey)
+        defaults.removeObject(forKey: appendsLoopLensSubfolderKey)
     }
 
     func availableURL(for baseName: String, in folder: URL) -> URL {

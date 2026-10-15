@@ -25,6 +25,10 @@ struct SettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
 
+                Text("The first recording asks once for folder access. Later recordings save automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 HStack {
                     Button("Choose Folder…") {
                         captureStore.chooseOutputFolder()
