@@ -152,42 +152,49 @@ struct ContentView: View {
     }
 
     private var previewContent: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
+        GeometryReader { geometry in
+            let playbackSize = PlaybackLayout.size(
+                aspectRatio: captureStore.recordingAspectRatio,
+                availableSize: geometry.size
+            )
 
-            if let gifURL = captureStore.lastGIFURL {
-                AnimatedGIFView(url: gifURL)
-                    .aspectRatio(captureStore.recordingAspectRatio, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
-                    .padding(32)
-            } else if let recordingURL = captureStore.lastRecordingURL {
-                VideoPlaybackView(url: recordingURL)
-                    .aspectRatio(captureStore.recordingAspectRatio, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
-                    .padding(32)
-            } else {
-                ContentUnavailableView {
-                    Label("Ready to Capture", systemImage: "record.circle")
-                } description: {
-                    if let display = captureStore.selectedDisplay {
-                        if let region = captureStore.captureRegion {
-                            Text("Record the selected \(region.sizeLabel) region on \(display.name).")
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+
+                if let gifURL = captureStore.lastGIFURL {
+                    AnimatedGIFView(url: gifURL)
+                        .frame(width: playbackSize.width, height: playbackSize.height)
+                        .background(.black, in: RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
+                } else if let recordingURL = captureStore.lastRecordingURL {
+                    VideoPlaybackView(url: recordingURL)
+                        .frame(width: playbackSize.width, height: playbackSize.height)
+                        .background(.black, in: RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
+                } else {
+                    ContentUnavailableView {
+                        Label("Ready to Capture", systemImage: "record.circle")
+                    } description: {
+                        if let display = captureStore.selectedDisplay {
+                            if let region = captureStore.captureRegion {
+                                Text("Record the selected \(region.sizeLabel) region on \(display.name).")
+                            } else {
+                                Text("Record \(display.name), or select a smaller region.")
+                            }
                         } else {
-                            Text("Record \(display.name), or select a smaller region.")
+                            Text("Select a display from the sidebar.")
                         }
-                    } else {
-                        Text("Select a display from the sidebar.")
+                    } actions: {
+                        Button("Select & Record Region") {
+                            Task { await captureStore.selectRegion() }
+                        }
+                        .disabled(captureStore.selectedDisplay == nil)
                     }
-                } actions: {
-                    Button("Select & Record Region") {
-                        Task { await captureStore.selectRegion() }
-                    }
-                    .disabled(captureStore.selectedDisplay == nil)
                 }
             }
-
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(captureStore.selectedDisplay?.name ?? "Recording")
         .overlay(alignment: .topTrailing) {

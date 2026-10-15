@@ -5,35 +5,25 @@ final class RecordingInteractionController {
     private let region: CaptureRegion
     private let screen: NSScreen
     private let borderOverlay: CaptureBorderOverlayController
-    private let circleOverlay: CircleEffectOverlayController
     private let zoomAction: @MainActor (CGRect) -> Void
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var circleRecognizer = CursorCircleRecognizer()
     private var zoomScale: CGFloat = 1
 
     init(
         region: CaptureRegion,
         screen: NSScreen,
         borderOverlay: CaptureBorderOverlayController,
-        circleOverlay: CircleEffectOverlayController,
         zoomAction: @escaping @MainActor (CGRect) -> Void
     ) {
         self.region = region
         self.screen = screen
         self.borderOverlay = borderOverlay
-        self.circleOverlay = circleOverlay
         self.zoomAction = zoomAction
     }
 
     func start() {
-        let mask: NSEvent.EventTypeMask = [
-            .mouseMoved,
-            .leftMouseDragged,
-            .rightMouseDragged,
-            .otherMouseDragged,
-            .magnify,
-        ]
+        let mask: NSEvent.EventTypeMask = [.magnify]
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             Task { @MainActor in self?.handle(event) }
         }
@@ -51,22 +41,8 @@ final class RecordingInteractionController {
     }
 
     private func handle(_ event: NSEvent) {
-        switch event.type {
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            handleMouse(at: NSEvent.mouseLocation)
-        case .magnify:
+        if event.type == .magnify {
             handleMagnification(event.magnification, around: NSEvent.mouseLocation)
-        default:
-            break
-        }
-    }
-
-    private func handleMouse(at globalPoint: CGPoint) {
-        guard let sourcePoint = sourcePoint(from: globalPoint), region.rect.contains(sourcePoint) else {
-            return
-        }
-        if let circle = circleRecognizer.add(sourcePoint) {
-            circleOverlay.drawCircle(around: circle.intersection(region.rect))
         }
     }
 

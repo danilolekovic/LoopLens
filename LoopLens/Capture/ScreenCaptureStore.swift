@@ -48,7 +48,6 @@ final class ScreenCaptureStore: ObservableObject {
     private var regionSelectionController: RegionSelectionController?
     private var recordingFloatyController: RecordingFloatyController?
     private var captureBorderOverlayController: CaptureBorderOverlayController?
-    private var circleEffectOverlayController: CircleEffectOverlayController?
     private var recordingInteractionController: RecordingInteractionController?
     private var zoomUpdateTask: Task<Void, Never>?
     private var hiddenWindows: [NSWindow] = []
@@ -234,14 +233,13 @@ final class ScreenCaptureStore: ObservableObject {
             configuration.scalesToFit = true
             configuration.sourceRect = activeRegion.rect
 
-            let effectWindowID = enterRecordingPresentation(
+            enterRecordingPresentation(
                 on: screen,
                 region: activeRegion,
                 session: session
             )
             let filter = try await recordingContentFilter(
-                displayID: display.id,
-                effectWindowID: effectWindowID
+                displayID: display.id
             )
 
             try await session.start(
@@ -382,8 +380,7 @@ final class ScreenCaptureStore: ObservableObject {
     }
 
     private func recordingContentFilter(
-        displayID: CGDirectDisplayID,
-        effectWindowID: CGWindowID
+        displayID: CGDirectDisplayID
     ) async throws -> SCContentFilter {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
@@ -396,13 +393,10 @@ final class ScreenCaptureStore: ObservableObject {
         let ownApplications = excludesLoopLensFromCapture
             ? content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
             : []
-        let effectWindows = excludesLoopLensFromCapture
-            ? content.windows.filter { $0.windowID == effectWindowID }
-            : []
         return SCContentFilter(
             display: display,
             excludingApplications: ownApplications,
-            exceptingWindows: effectWindows
+            exceptingWindows: []
         )
     }
 
@@ -432,7 +426,7 @@ final class ScreenCaptureStore: ObservableObject {
         on screen: NSScreen,
         region: CaptureRegion,
         session: ScreenRecordingSession
-    ) -> CGWindowID {
+    ) {
         if usesRecordingFloaty {
             hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible }
             hiddenWindows.forEach { $0.orderOut(nil) }
@@ -448,15 +442,10 @@ final class ScreenCaptureStore: ObservableObject {
         captureBorderOverlayController = borderController
         borderController.show()
 
-        let circleController = CircleEffectOverlayController(region: region, on: screen)
-        circleEffectOverlayController = circleController
-        circleController.show()
-
         let interactionController = RecordingInteractionController(
             region: region,
             screen: screen,
-            borderOverlay: borderController,
-            circleOverlay: circleController
+            borderOverlay: borderController
         ) { [weak self, weak session] zoomRect in
             guard let self, let session else { return }
             self.zoomUpdateTask?.cancel()
@@ -466,7 +455,6 @@ final class ScreenCaptureStore: ObservableObject {
         }
         recordingInteractionController = interactionController
         interactionController.start()
-        return circleController.windowNumber
     }
 
     private func leaveRecordingPresentation() {
@@ -474,9 +462,6 @@ final class ScreenCaptureStore: ObservableObject {
         zoomUpdateTask = nil
         recordingInteractionController?.stop()
         recordingInteractionController = nil
-
-        circleEffectOverlayController?.close()
-        circleEffectOverlayController = nil
 
         captureBorderOverlayController?.close()
         captureBorderOverlayController = nil

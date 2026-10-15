@@ -39,6 +39,26 @@ struct LoopLensTests {
         #expect(smallDisplay.previewSize(maxDimension: 1600) == CGSize(width: 1280, height: 720))
     }
 
+    @Test func playbackLayoutStaysInsideThePreviewCardBounds() {
+        let size = PlaybackLayout.size(
+            aspectRatio: 16.0 / 9.0,
+            availableSize: CGSize(width: 1600, height: 1000)
+        )
+
+        #expect(size == CGSize(width: 640, height: 360))
+    }
+
+    @Test func playbackLayoutShrinksWithTheWindow() {
+        let size = PlaybackLayout.size(
+            aspectRatio: 4.0 / 3.0,
+            availableSize: CGSize(width: 700, height: 500)
+        )
+
+        #expect(size.width <= 636)
+        #expect(size.height <= 436)
+        #expect(abs(size.width / size.height - 4.0 / 3.0) < 0.001)
+    }
+
     @Test func captureRegionConvertsFromAppKitCoordinates() {
         let region = CaptureRegion(
             appKitRect: CGRect(x: 100, y: 200, width: 800, height: 450),
@@ -118,25 +138,4 @@ struct LoopLensTests {
         #expect(!manager.defaultURL.path.contains("/Library/Containers/"))
     }
 
-    @Test func cursorCircleRecognizerDetectsRepeatedRotation() {
-        var recognizer = CursorCircleRecognizer()
-        let start = Date(timeIntervalSince1970: 1_000)
-        var detectedCircle: CGRect?
-
-        for index in 0..<72 {
-            let angle = CGFloat(index) / 72 * 4 * .pi
-            let point = CGPoint(
-                x: 240 + cos(angle) * 64,
-                y: 180 + sin(angle) * 64
-            )
-            detectedCircle = recognizer.add(
-                point,
-                at: start.addingTimeInterval(Double(index) * 0.012)
-            ) ?? detectedCircle
-        }
-
-        #expect(detectedCircle != nil)
-        #expect(abs((detectedCircle?.midX ?? 0) - 240) < 8)
-        #expect(abs((detectedCircle?.midY ?? 0) - 180) < 8)
-    }
 }

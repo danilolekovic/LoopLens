@@ -17,7 +17,6 @@ LoopLens is in early development. The current build includes:
 - Record through a temporary H.264 working file.
 - Keep a click-through border around the selected region while recording.
 - Pinch over the recording region to zoom toward the pointer; the cyan inset shows the live crop and snaps back to the original border when zoomed out.
-- Recognize repeated circular pointer motion and draw a fading highlight ring around it.
 - Automatically save endlessly looping GIFs at selectable sizes and frame rates.
 - Play the temporary recording immediately, then preview the finished animated GIF in the app.
 - Control recording from a compact floating controller or the menu bar.
