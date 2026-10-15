@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 struct OutputFolderManager {
     private let defaults: UserDefaults
@@ -9,8 +10,19 @@ struct OutputFolderManager {
     }
 
     var defaultURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        accountHomeDirectory
+            .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("LoopLens", isDirectory: true)
+    }
+
+    private var accountHomeDirectory: URL {
+        guard let passwordEntry = getpwuid(getuid()) else {
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+        return URL(
+            fileURLWithPath: String(cString: passwordEntry.pointee.pw_dir),
+            isDirectory: true
+        )
     }
 
     func savedURL() -> URL? {

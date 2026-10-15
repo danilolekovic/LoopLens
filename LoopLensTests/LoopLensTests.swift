@@ -111,6 +111,13 @@ struct LoopLensTests {
         #expect(manager.availableURL(for: "Demo", in: folder).lastPathComponent == "Demo 2.gif")
     }
 
+    @Test func defaultOutputFolderUsesTheUsersDocumentsDirectory() {
+        let manager = OutputFolderManager(defaults: UserDefaults.standard)
+
+        #expect(manager.defaultURL.path.hasSuffix("/Documents/LoopLens"))
+        #expect(!manager.defaultURL.path.contains("/Library/Containers/"))
+    }
+
     @Test func cursorCircleRecognizerDetectsRepeatedRotation() {
         var recognizer = CursorCircleRecognizer()
         let start = Date(timeIntervalSince1970: 1_000)
